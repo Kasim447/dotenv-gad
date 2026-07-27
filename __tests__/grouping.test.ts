@@ -70,6 +70,92 @@ describe("grouped env variables (envPrefix)", () => {
     expect(() => v.validate(env)).toThrow();
   });
 
+  test("schema-declared sibling keys are not folded into a group (strict)", () => {
+    const schema = defineSchema({
+      DATABASE: {
+        type: "object",
+        properties: { DB_NAME: { type: "string", default: "mydb" } },
+      },
+      DATABASE_URL: { type: "url", required: true },
+    });
+
+    const v = new EnvValidator(schema, { strict: true });
+    const validated = v.validate({ DATABASE_URL: "https://db.example.com" });
+    expect(validated.DATABASE_URL).toBe("https://db.example.com");
+    expect(validated.DATABASE).toEqual({ DB_NAME: "mydb" });
+  });
+
+  // Issue #58: object groups were skipped entirely when no prefixed variable was set
+  test("applies property defaults when no prefixed variable is set", () => {
+    const schema = defineSchema({
+      GROUP_WITH_DEFAULT: {
+        type: "object",
+        envPrefix: "ABSENT_",
+        properties: { VALUE: { type: "string", default: "fallback" } },
+      },
+    });
+
+    const v = new EnvValidator(schema);
+    const validated = v.validate({});
+    expect(validated.GROUP_WITH_DEFAULT).toEqual({ VALUE: "fallback" });
+  });
+
+  test("enforces required properties when no prefixed variable is set", () => {
+    const schema = defineSchema({
+      GROUP_WITH_REQUIRED: {
+        type: "object",
+        envPrefix: "ALSOABSENT_",
+        properties: { VALUE: { type: "string", required: true } },
+      },
+    });
+
+    const v = new EnvValidator(schema);
+    expect(() => v.validate({})).toThrow(EnvAggregateError);
+  });
+
+  test("group-level required is enforced when the whole group is absent", () => {
+    const schema = defineSchema({
+      DATABASE: {
+        type: "object",
+        required: true,
+        properties: { DB_NAME: { type: "string", default: "mydb" } },
+      },
+    });
+
+    const v = new EnvValidator(schema);
+    expect(() => v.validate({})).toThrow(/Missing required/);
+  });
+
+  test("group-level default wins when the whole group is absent", () => {
+    const schema = defineSchema({
+      DATABASE: {
+        type: "object",
+        default: { DB_NAME: "from-group-default" },
+        properties: { DB_NAME: { type: "string", default: "from-prop-default" } },
+      },
+    });
+
+    const v = new EnvValidator(schema);
+    const validated = v.validate({});
+    expect(validated.DATABASE).toEqual({ DB_NAME: "from-group-default" });
+  });
+
+  test("partial group still merges defaults for unset properties", () => {
+    const schema = defineSchema({
+      DATABASE: {
+        type: "object",
+        properties: {
+          DB_NAME: { type: "string", required: true },
+          PORT: { type: "port", default: 5432 },
+        },
+      },
+    });
+
+    const v = new EnvValidator(schema);
+    const validated = v.validate({ DATABASE_DB_NAME: "mydb" });
+    expect(validated.DATABASE).toEqual({ DB_NAME: "mydb", PORT: 5432 });
+  });
+
   test("includeRaw shows raw grouped values when enabled", () => {
     const schema = defineSchema({
       DATABASE: {
