@@ -74,6 +74,10 @@ export class EnvValidator {
     const envKeys = Object.keys(processedEnv);
     for (let i = 0; i < envKeys.length; i++) {
       const eKey = envKeys[i];
+      // Keys explicitly declared in the schema are validated on their own and
+      // must not be folded into a prefixed group (e.g. a DATABASE_URL key
+      // alongside a DATABASE object group).
+      if (Object.prototype.hasOwnProperty.call(this.schema, eKey)) continue;
       for (let j = 0; j < prefixes.length; j++) {
         const { key, prefix } = prefixes[j];
         if (eKey.startsWith(prefix)) {
@@ -93,17 +97,34 @@ export class EnvValidator {
 
       try {
         // If we have grouped values for this key use them (preferred over JSON string)
-        const valToValidate = groupedEnv[key] && Object.keys(groupedEnv[key]).length > 0
-          ? groupedEnv[key]
-          : processedEnv[key];
-
-        // If both grouped and a top-level JSON value exist, prefer grouped and warn
-        if (groupedEnv[key] && Object.keys(groupedEnv[key]).length > 0 && processedEnv[key] !== undefined) {
-          console.warn(`Both prefixed variables and top-level ${key} exist; prefixed vars are used`);
+        const hasGroupedValues =
+          groupedEnv[key] !== undefined &&
+          Object.keys(groupedEnv[key]).length > 0;
+        let valToValidate: any;
+        if (hasGroupedValues) {
+          valToValidate = groupedEnv[key];
+          // If both grouped and a top-level JSON value exist, prefer grouped and warn
+          if (processedEnv[key] !== undefined) {
+            console.warn(
+              `Both prefixed variables and top-level ${key} exist; prefixed vars are used`
+            );
+          }
+        } else if (processedEnv[key] !== undefined) {
+          valToValidate = processedEnv[key];
+        } else if (groupedEnv[key] !== undefined) {
+          // Grouped object key with none of its prefixed variables set:
+          // validate an empty object so property-level defaults apply and
+          // required properties are enforced. A group-level `required` or
+          // `default` takes precedence and is handled via undefined instead.
+          const eff = this.getEffectiveRule(key, rule);
+          valToValidate =
+            eff.required || eff.default !== undefined ? undefined : {};
+        } else {
+          valToValidate = processedEnv[key];
         }
 
         // If strict mode is enabled, and this key has grouped env vars, ensure there are no unexpected subkeys
-        if (this.options?.strict && groupedEnv[key] && Object.keys(groupedEnv[key]).length > 0) {
+        if (this.options?.strict && hasGroupedValues) {
           const propNames = rule.properties ? Object.keys(rule.properties) : [];
           const extras = Object.keys(groupedEnv[key]).filter((s) => !propNames.includes(s));
           if (extras.length > 0) {
@@ -143,6 +164,14 @@ export class EnvValidator {
             value: displayedValue,
             rule,
           });
+        } else {
+          // Non-Error throws (e.g. a transform throwing a string) must still
+          // be recorded, otherwise the key silently disappears from the result.
+          this.errors.push({
+            key,
+            message: String(error),
+            rule,
+          });
         }
       }
     }
@@ -156,7 +185,10 @@ export class EnvValidator {
       }
 
       for (const k of envKeys) {
-        if (!(k in this.schema) && !prefixedKeys.has(k)) {
+        if (
+          !Object.prototype.hasOwnProperty.call(this.schema, k) &&
+          !prefixedKeys.has(k)
+        ) {
           this.errors.push({
             key: k,
             message: `Unexpected environment variable`,
