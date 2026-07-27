@@ -455,7 +455,7 @@ describe("status: encryption status reporting", () => {
       const value = parsed[key];
       if (!value) {
         results[key] = "missing";
-      } else if (rule.encrypted && isEncryptedValue(value)) {
+      } else if ("encrypted" in rule && rule.encrypted && isEncryptedValue(value)) {
         results[key] = "encrypted";
       } else {
         results[key] = "plaintext";

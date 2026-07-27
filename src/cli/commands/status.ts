@@ -4,6 +4,7 @@ import ora from "ora";
 import { existsSync, readFileSync } from "node:fs";
 import dotenv from "dotenv";
 import { isEncryptedValue, loadPrivateKey } from "../../crypto.js";
+import { getEncryptedEnvKeys, type SchemaRule } from "../../schema.js";
 import { loadSchema } from "./utils.js";
 
 export default function (_program: Command) {
@@ -34,9 +35,24 @@ export default function (_program: Command) {
         spinner.stop();
 
         const schemaKeys = Object.keys(schema);
-        const encryptedSchemaKeys = new Set(
-          schemaKeys.filter((k) => schema[k].encrypted)
-        );
+
+        // One row per .env variable: object groups are expanded into their
+        // prefixed property keys (e.g. DATABASE_PWD), everything else is the
+        // schema key itself.
+        const rows: { key: string; rule: SchemaRule }[] = [];
+        for (const key of schemaKeys) {
+          const rule = schema[key];
+          if (rule.type === "object" && rule.properties) {
+            const prefix = rule.envPrefix ?? `${key}_`;
+            for (const [prop, propRule] of Object.entries(rule.properties)) {
+              const envKey = `${prefix}${prop}`;
+              if (Object.prototype.hasOwnProperty.call(schema, envKey)) continue;
+              rows.push({ key: envKey, rule: propRule });
+            }
+          } else {
+            rows.push({ key, rule });
+          }
+        }
 
         console.log(chalk.bold("\nEnvironment Encryption Status"));
         console.log(chalk.dim("─".repeat(52)));
@@ -44,8 +60,7 @@ export default function (_program: Command) {
         let correctCount = 0;
         let warningCount = 0;
 
-        for (const key of schemaKeys) {
-          const rule = schema[key];
+        for (const { key, rule } of rows) {
           const value = parsed[key];
           const needsEncryption = rule.encrypted === true;
           const valueIsEncrypted = value ? isEncryptedValue(value) : false;
@@ -118,7 +133,7 @@ export default function (_program: Command) {
 
         console.log();
 
-        const encryptedTotal = encryptedSchemaKeys.size;
+        const encryptedTotal = getEncryptedEnvKeys(schema).length;
         if (warningCount > 0) {
           console.log(
             chalk.yellow(`  ${warningCount} issue(s) detected`) +
@@ -127,7 +142,7 @@ export default function (_program: Command) {
           process.exit(1);
         } else {
           console.log(
-            chalk.green(`  All ${schemaKeys.length} field(s) are correctly configured`)
+            chalk.green(`  All ${rows.length} field(s) are correctly configured`)
           );
         }
       } catch (error) {

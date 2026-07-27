@@ -11,6 +11,7 @@ import {
   isEncryptedValue,
   loadPrivateKey,
 } from "../../crypto.js";
+import { getEncryptedEnvKeys } from "../../schema.js";
 import { loadSchema } from "./utils.js";
 
 async function confirm(question: string): Promise<boolean> {
@@ -39,8 +40,8 @@ export default function (_program: Command) {
       try {
         const schema = await loadSchema(schemaPath);
 
-        const encryptedFields = Object.keys(schema).filter(
-          (k) => schema[k].encrypted === true
+        const encryptedFields = getEncryptedEnvKeys(schema).map(
+          (e) => e.envKey
         );
 
         if (encryptedFields.length === 0) {

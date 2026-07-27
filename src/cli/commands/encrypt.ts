@@ -4,6 +4,7 @@ import ora from "ora";
 import { readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import dotenv from "dotenv";
 import { encryptEnvValue, isEncryptedValue } from "../../crypto.js";
+import { getEncryptedEnvKeys } from "../../schema.js";
 import { EncryptionKeyMissingError } from "../../errors.js";
 import { loadSchema } from "./utils.js";
 
@@ -21,8 +22,8 @@ export default function (_program: Command) {
       try {
         const schema = await loadSchema(schemaPath);
 
-        const encryptedFields = Object.keys(schema).filter(
-          (k) => schema[k].encrypted === true
+        const encryptedFields = getEncryptedEnvKeys(schema).map(
+          (e) => e.envKey
         );
 
         if (encryptedFields.length === 0) {
