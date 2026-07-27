@@ -94,6 +94,34 @@ console.log(env.DATABASE_URL); // "postgres://user:pass@localhost/mydb"
 
 Decryption happens transparently at startup. No code changes needed beyond the schema.
 
+## Encrypted properties in object groups
+
+Properties inside [grouped object schemas](./grouping.md) can also declare `encrypted: true`. The variable is stored under its prefixed name in `.env` and decrypted transparently before being mapped into the group:
+
+```typescript
+export default defineSchema({
+  DATABASE: {
+    type: 'object',
+    properties: {
+      HOST: { type: 'string', default: 'localhost' },
+      PWD: { type: 'string', required: true, sensitive: true, encrypted: true },
+    },
+  },
+});
+```
+
+```
+DATABASE_HOST=localhost
+DATABASE_PWD=encrypted:v1:Ro4rhopWVr0w280K2ISH…
+```
+
+```typescript
+const env = loadEnv(schema);
+console.log(env.DATABASE.PWD); // decrypted plaintext
+```
+
+All CLI commands (`encrypt`, `decrypt`, `status`, `verify`, `rotate`) treat prefixed group variables like any other encrypted field.
+
 ## CLI commands
 
 | Command | Description |

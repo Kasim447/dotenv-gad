@@ -1,5 +1,11 @@
 import { EnvValidator } from "./validator.js";
-import { defineSchema, SchemaDefinition, SchemaRule } from "./schema.js";
+import {
+  defineSchema,
+  getEncryptedEnvKeys,
+  SchemaDefinition,
+  SchemaRule,
+  EncryptedEnvKey,
+} from "./schema.js";
 import {
   EnvAggregateError,
   AggregateError,
@@ -24,6 +30,7 @@ import { isBun, getEnv, getRuntimeName, getRuntimeVersion } from "./runtime.js";
 
 export {
   defineSchema,
+  getEncryptedEnvKeys,
   EnvAggregateError,
   /** @deprecated Use `EnvAggregateError` instead. */
   AggregateError,
@@ -45,7 +52,14 @@ export {
   getRuntimeName,
   getRuntimeVersion,
 };
-export type { SchemaDefinition, SchemaRule, ExtractEnv, InferEnv, KeyPair };
+export type {
+  SchemaDefinition,
+  SchemaRule,
+  EncryptedEnvKey,
+  ExtractEnv,
+  InferEnv,
+  KeyPair,
+};
 
 export function validateEnv(
   schema: SchemaDefinition,

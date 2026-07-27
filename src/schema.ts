@@ -44,6 +44,41 @@ export interface SchemaRule {
 
 export type SchemaDefinition = Record<string, SchemaRule>;
 
+export interface EncryptedEnvKey {
+  /** Name of the variable as it appears in the .env file / process.env. */
+  envKey: string;
+  /** Top-level schema key that owns this variable. */
+  schemaKey: string;
+}
+
+/**
+ * Enumerates the .env variable names of every field marked `encrypted: true`:
+ * top-level schema keys, plus `<prefix><PROP>` for object groups whose
+ * properties declare `encrypted: true` (grouped via `envPrefix`, defaulting
+ * to `<SCHEMA_KEY>_`).
+ */
+export function getEncryptedEnvKeys(
+  schema: SchemaDefinition
+): EncryptedEnvKey[] {
+  const keys: EncryptedEnvKey[] = [];
+  for (const [key, rule] of Object.entries(schema)) {
+    if (rule.encrypted === true) {
+      keys.push({ envKey: key, schemaKey: key });
+    }
+    if (rule.type === "object" && rule.properties) {
+      const prefix = rule.envPrefix ?? `${key}_`;
+      for (const [prop, propRule] of Object.entries(rule.properties)) {
+        if (propRule.encrypted !== true) continue;
+        const envKey = `${prefix}${prop}`;
+        // A prefixed name that collides with an explicit schema key belongs
+        // to that key, not the group.
+        if (Object.prototype.hasOwnProperty.call(schema, envKey)) continue;
+        keys.push({ envKey, schemaKey: key });
+      }
+    }
+  }
+  return keys;
+}
 
 /**
  * A type-safe way to define your environment schema.

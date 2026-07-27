@@ -1,4 +1,4 @@
-import { SchemaDefinition, SchemaRule } from "./schema.js";
+import { SchemaDefinition, SchemaRule, getEncryptedEnvKeys } from "./schema.js";
 import { EnvAggregateError, EncryptionKeyMissingError } from "./errors.js";
 import { decryptEnvValue, isEncryptedValue, loadPrivateKey } from "./crypto.js";
 import { getEnv } from "./runtime.js";
@@ -472,14 +472,19 @@ export class EnvValidator {
     const processedEnv: Record<string, string | undefined> = { ...env };
     const skipKeys = new Set<string>();
 
-    const encryptedSchemaKeys = Object.keys(this.schema).filter(
-      (k) => this.schema[k].encrypted
-    );
+    // Every declared encrypted variable: top-level keys plus grouped
+    // properties (e.g. DATABASE_PWD for a DATABASE group with an encrypted
+    // PWD property). For grouped entries, decryption failures skip the whole
+    // owning group via schemaKey.
+    const encryptedKeys = getEncryptedEnvKeys(this.schema);
 
-    if (encryptedSchemaKeys.length > 0) {
+    if (encryptedKeys.length > 0) {
       // Only load the private key when at least one value is already encrypted
-      const needsDecryption = encryptedSchemaKeys.some(
-        (k) => processedEnv[k] != null && processedEnv[k] !== "" && isEncryptedValue(processedEnv[k]!)
+      const needsDecryption = encryptedKeys.some(
+        ({ envKey }) =>
+          processedEnv[envKey] != null &&
+          processedEnv[envKey] !== "" &&
+          isEncryptedValue(processedEnv[envKey]!)
       );
 
       let privateKeyHex: string | null = null;
@@ -490,45 +495,46 @@ export class EnvValidator {
         }
       }
 
-      for (const key of encryptedSchemaKeys) {
-        const value = processedEnv[key];
+      for (const { envKey, schemaKey } of encryptedKeys) {
+        const value = processedEnv[envKey];
         if (value == null || value === "") continue; // handled by required check in main loop
 
         if (isEncryptedValue(value)) {
           try {
-            processedEnv[key] = decryptEnvValue(value, privateKeyHex!, key);
+            processedEnv[envKey] = decryptEnvValue(value, privateKeyHex!, envKey);
           } catch (err) {
             this.errors.push({
-              key,
+              key: envKey,
               message: err instanceof Error ? err.message : "Decryption failed",
-              rule: this.schema[key],
+              rule: this.schema[schemaKey],
             });
-            skipKeys.add(key);
+            skipKeys.add(schemaKey);
           }
         } else {
           // Plaintext value for a field that should be encrypted
           if (this.options?.allowPlaintext) {
             console.warn(
-              `[dotenv-gad] "${key}" has a plaintext value but schema declares encrypted: true. ` +
+              `[dotenv-gad] "${envKey}" has a plaintext value but schema declares encrypted: true. ` +
                 "Run: npx dotenv-gad encrypt"
             );
           } else {
             this.errors.push({
-              key,
+              key: envKey,
               message:
                 'Must be encrypted. Run: npx dotenv-gad encrypt',
-              rule: this.schema[key],
+              rule: this.schema[schemaKey],
             });
-            skipKeys.add(key);
+            skipKeys.add(schemaKey);
           }
         }
       }
     }
 
     // Flag any env value that looks encrypted but the schema doesn't declare encrypted: true
+    const declaredEncrypted = new Set(encryptedKeys.map((e) => e.envKey));
     for (const [eKey, value] of Object.entries(processedEnv)) {
-      if (skipKeys.has(eKey)) continue;
-      if (value && isEncryptedValue(value) && !this.schema[eKey]?.encrypted) {
+      if (skipKeys.has(eKey) || declaredEncrypted.has(eKey)) continue;
+      if (value && isEncryptedValue(value)) {
         this.errors.push({
           key: eKey,
           message: "Encrypted value found but schema does not declare encrypted: true",

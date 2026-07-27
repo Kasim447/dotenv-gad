@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isBun, getEnv, getRuntimeName, getRuntimeVersion } from "../src/runtime";
+import { isBun, getEnv, getRuntimeName, getRuntimeVersion } from "../src/runtime.js";
 
 describe("Runtime Detection", () => {
   it("should detect runtime correctly", () => {
